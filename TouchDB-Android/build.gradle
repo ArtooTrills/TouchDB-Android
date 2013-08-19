@@ -1,0 +1,74 @@
+buildscript {
+    repositories {
+        mavenCentral()
+        maven {
+            url "https://oss.sonatype.org/content/repositories/snapshots"
+        }
+    }
+    dependencies {
+        classpath 'com.android.tools.build:gradle:0.5.+'
+    }
+}
+
+apply plugin: 'android-library'
+apply plugin: 'maven'
+group = 'com.couchbase.touchdb'
+version = '1.0-SNAPSHOT'
+
+configurations {
+    deployerAars
+}
+
+repositories {
+    maven {
+        credentials {
+            username 'AKIAJAY4BOTQTNCL7PVQ'
+            password 'pmY2vBxOHLkGz7TGsTMpPyPot764aPmYgPUHA7Ub'
+        }
+        url "http://artoo-mvn-repo.s3.amazonaws.com/snapshots"
+    }
+    mavenCentral()
+//    mavenLocal()
+}
+
+
+android {
+    compileSdkVersion 18
+    buildToolsVersion "18.0.1"
+
+    defaultConfig {
+        minSdkVersion 8
+        targetSdkVersion 18
+    }
+}
+
+dependencies {
+    //  compile 'com.android.support:support-v4:13.0.+'
+    //compile 'org.ektorp:org.ektorp.parent:1.2.2-SNAPSHOT@pom'
+    compile 'org.ektorp:org.ektorp.android:1.2.2-SNAPSHOT'
+    compile 'org.codehaus.jackson:jackson-mapper-asl:1.9.13'
+    compile 'org.codehaus.jackson:jackson-core-asl:1.9.13'
+    deployerAars "org.springframework.build:aws-maven:4.8.0.RELEASE"
+}
+
+task wrapper(type: org.gradle.api.tasks.wrapper.Wrapper) {
+    gradleVersion = '1.6'
+}
+
+uploadArchives {
+    repositories {
+        mavenDeployer { deployer ->
+            configuration = configurations.deployerAars
+            def repositoryUrl = 's3://artoo-mvn-repo/snapshots'
+
+            repository(url: repositoryUrl) { authentication(userName: 'AKIAJAY4BOTQTNCL7PVQ',
+                    passphrase: 'pmY2vBxOHLkGz7TGsTMpPyPot764aPmYgPUHA7Ub')
+            }
+            pom.project {
+                name 'TouchDB-Android'
+                packaging 'aar'
+            }
+        }
+
+    }
+}
