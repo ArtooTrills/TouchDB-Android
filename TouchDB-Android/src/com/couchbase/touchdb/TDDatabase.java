@@ -18,7 +18,10 @@
 package com.couchbase.touchdb;
 
 import java.io.ByteArrayInputStream;
+import java.io.ByteArrayOutputStream;
 import java.io.File;
+import java.io.FileInputStream;
+import java.io.FileNotFoundException;
 import java.io.IOException;
 import java.io.InputStream;
 import java.net.URL;
@@ -39,6 +42,8 @@ import android.database.SQLException;
 import android.database.sqlite.SQLiteConstraintException;
 import android.database.sqlite.SQLiteDatabase;
 import android.database.sqlite.SQLiteException;
+import android.os.Environment;
+import android.os.DropBoxManager.Entry;
 import android.util.Log;
 
 import com.couchbase.touchdb.TDDatabase.TDContentOptions;
@@ -71,7 +76,7 @@ public class TDDatabase extends Observable {
 	 * Options for what metadata to include in document bodies
 	 */
 	public enum TDContentOptions {
-		TDIncludeAttachments, TDIncludeConflicts, TDIncludeRevs, TDIncludeRevsInfo, TDIncludeLocalSeq, TDNoBody
+		TDIncludeAttachments, TDIncludeConflicts, TDIncludeRevs, TDIncludeRevsInfo, TDIncludeLocalSeq, TDNoBody, TDIncludeAttachmentsDataAsPath
 	}
 
 	private static final Set<String> KNOWN_SPECIAL_KEYS;
@@ -127,7 +132,7 @@ public class TDDatabase extends Observable {
 			+ "        key BLOB NOT NULL, "
 			+ "        type TEXT, "
 			+ "        length INTEGER NOT NULL, "
-			+ "        revpos INTEGER DEFAULT 0); "
+			+ "        revpos INTEGER DEFAULT 0);"
 			+ "    CREATE INDEX attachments_by_sequence on attachments(sequence, filename); "
 			+ "    CREATE TABLE replicators ( "
 			+ "        remote TEXT NOT NULL, " + "        push BOOLEAN, "
@@ -316,6 +321,27 @@ public class TDDatabase extends Observable {
 					+ "        lastUpdated INTEGER, "
 					+ "        UNIQUE (remote, push, docid, revid)); "
 					+ "PRAGMA user_version = 5";
+			if (!initialize(upgradeSql)) {
+				database.close();
+				return false;
+			}
+		}
+
+		if (dbVersion < 6) {
+			// Version 6: added attachments.filepath
+			String upgradeSql = "CREATE TABLE attachments_new ( "
+					+ "        sequence INTEGER NOT NULL REFERENCES revs(sequence) ON DELETE CASCADE, "
+					+ "        filename TEXT NOT NULL, "
+					+ "        key BLOB NOT NULL, "
+					+ "        type TEXT, "
+					+ "        length INTEGER NOT NULL, "
+					+ "        revpos INTEGER DEFAULT 0,"
+					+ " 	   filepath TEXT NOT NULL);"
+					+ "INSERT INTO attachments_new (sequence, filename, key, type, length, revpos) SELECT sequence, filename, key, type, length, revpos from attachments;"
+					+ "DROP TABLE attachments;"
+					+ "ALTER TABLE attachments_new RENAME TO attachments;"
+					+ "PRAGMA user_version = 6;";
+
 			if (!initialize(upgradeSql)) {
 				database.close();
 				return false;
@@ -612,8 +638,14 @@ public class TDDatabase extends Observable {
 		// Get attachment metadata, and optionally the contents:
 		boolean withAttachments = contentOptions
 				.contains(TDContentOptions.TDIncludeAttachments);
+		// Original touchDb
+		// Map<String, Object> attachmentsDict =
+		// getAttachmentsDictForSequenceWithContent(
+		// sequenceNumber, withAttachments, contentOptions);
+
+		// Modified By Shubham - Passing the whole rev instead of just sequence
 		Map<String, Object> attachmentsDict = getAttachmentsDictForSequenceWithContent(
-				sequenceNumber, withAttachments);
+				rev, withAttachments, contentOptions);
 
 		// Get more optional stuff to put in the properties:
 		// OPT: This probably ends up making redundant SQL queries if multiple
@@ -1413,14 +1445,17 @@ public class TDDatabase extends Observable {
 
 	public TDStatus insertAttachmentForSequenceWithNameAndType(
 			InputStream contentStream, long sequence, String name,
-			String contentType, int revpos) {
+			String contentType, int revpos, String docId) {
 		assert (sequence > 0);
 		assert (name != null);
 
 		TDBlobKey key = new TDBlobKey();
-		if (!attachments.storeBlobStream(contentStream, key)) {
+		if (!attachments.storeBlobStream(contentStream, key, name, docId,
+				revpos)) {
 			return new TDStatus(TDStatus.INTERNAL_SERVER_ERROR);
 		}
+		// Added By Shubham
+		String filepath = attachments.pathForAtt(name, docId, revpos);
 
 		byte[] keyData = key.getBytes();
 		try {
@@ -1429,8 +1464,9 @@ public class TDDatabase extends Observable {
 			args.put("filename", name);
 			args.put("key", keyData);
 			args.put("type", contentType);
-			args.put("length", attachments.getSizeOfBlob(key));
+			args.put("length", attachments.getSizeOfBlob(filepath));
 			args.put("revpos", revpos);
+			args.put("filepath", filepath);
 			database.insert("attachments", null, args);
 			return new TDStatus(TDStatus.CREATED);
 		} catch (SQLException e) {
@@ -1453,8 +1489,8 @@ public class TDDatabase extends Observable {
 				name };
 		try {
 			database.execSQL(
-					"INSERT INTO attachments (sequence, filename, key, type, length, revpos) "
-							+ "SELECT ?, ?, key, type, length, revpos FROM attachments "
+					"INSERT INTO attachments (sequence, filename, key, type, length, revpos,filepath) "
+							+ "SELECT ?, ?, key, type, length, revpos, filepath FROM attachments "
 							+ "WHERE sequence=? AND filename=?", args);
 			cursor = database.rawQuery("SELECT changes()", null);
 			cursor.moveToFirst();
@@ -1532,18 +1568,24 @@ public class TDDatabase extends Observable {
 	/**
 	 * Constructs an "_attachments" dictionary for a revision, to be inserted in
 	 * its JSON body.
+	 * 
+	 * @param contentOptions
 	 */
 	public Map<String, Object> getAttachmentsDictForSequenceWithContent(
-			long sequence, boolean withContent) {
+			TDRevision rev, boolean withContent,
+			EnumSet<TDContentOptions> contentOptions) {
+
+		long sequence = rev.getSequence();
 		assert (sequence > 0);
 
 		Cursor cursor = null;
 
 		String args[] = { Long.toString(sequence) };
 		try {
+			// Added filepath - Shubham
 			cursor = database
 					.rawQuery(
-							"SELECT filename, key, type, length, revpos FROM attachments WHERE sequence=?",
+							"SELECT filename, key, type, length, revpos, filepath FROM attachments WHERE sequence=?",
 							args);
 
 			if (!cursor.moveToFirst()) {
@@ -1555,11 +1597,25 @@ public class TDDatabase extends Observable {
 			while (!cursor.isAfterLast()) {
 
 				byte[] keyData = cursor.getBlob(1);
+				int revpos = cursor.getInt(4);
 				TDBlobKey key = new TDBlobKey(keyData);
 				String digestString = "sha1-" + Base64.encodeBytes(keyData);
 				String dataBase64 = null;
-				if (withContent) {
-					byte[] data = attachments.blobForKey(key);
+
+				// Original TouchDB
+				// if (withContent) {
+				// byte[] data = attachments.blobForKey(key);
+				// if (data != null) {
+				// dataBase64 = Base64.encodeBytes(data);
+				// } else {
+				// Log.w(TDDatabase.TAG, "Error loading attachment");
+				// }
+				// }
+
+				// Modified By Shubham
+				if (withContent && revpos == rev.getGeneration()) {
+					byte[] data = attachments.blobForAtt(cursor.getString(0),
+							rev.getDocId(), revpos);
 					if (data != null) {
 						dataBase64 = Base64.encodeBytes(data);
 					} else {
@@ -1568,16 +1624,20 @@ public class TDDatabase extends Observable {
 				}
 
 				Map<String, Object> attachment = new HashMap<String, Object>();
-				if (dataBase64 == null) {
-					attachment.put("stub", true);
+				if (!contentOptions
+						.contains(TDContentOptions.TDIncludeAttachmentsDataAsPath)) {
+					if (dataBase64 == null) {
+						attachment.put("stub", true);
+					} else {
+						attachment.put("data", dataBase64);
+					}
 				} else {
-					attachment.put("data", dataBase64);
+					attachment.put("data", cursor.getString(5));
 				}
 				attachment.put("digest", digestString);
 				attachment.put("content_type", cursor.getString(2));
 				attachment.put("length", cursor.getInt(3));
 				attachment.put("revpos", cursor.getInt(4));
-
 				result.put(cursor.getString(0), attachment);
 
 				cursor.moveToNext();
@@ -1630,6 +1690,7 @@ public class TDDatabase extends Observable {
 				// ...then remove the 'data' and 'follows' key:
 				Map<String, Object> editedAttachment = new HashMap<String, Object>(
 						attachment);
+
 				editedAttachment.remove("data");
 				editedAttachment.remove("follows");
 				editedAttachment.put("stub", true);
@@ -1670,44 +1731,141 @@ public class TDDatabase extends Observable {
 			TDStatus status = new TDStatus();
 			Map<String, Object> newAttach = (Map<String, Object>) newAttachments
 					.get(name);
+
+			// Original TouchDB
+			// String newContentBase64 = (String) newAttach.get("data");
+			// if (newContentBase64 != null) {
+			// // New item contains data, so insert it. First decode the data:
+			// byte[] newContents;
+			// try {
+			// newContents = Base64.decode(newContentBase64);
+			// } catch (IOException e) {
+			// Log.e(TDDatabase.TAG, "IOExeption parsing base64", e);
+			// return new TDStatus(TDStatus.BAD_REQUEST);
+			// }
+
+			// Modified By Shubham : Handling Both Base64 and String Content in
+			// data. As Android has a 1 MB limit on data that can be passed
+			// between different processes, we are sending path of attachment in
+			// data instead of actual attachment and then we are extracting
+			// that attachment from the path.
+			// ---------------------------------------------------------------------------
+			// Assuming Base64 Data
 			String newContentBase64 = (String) newAttach.get("data");
+
+			int generation = rev.getGeneration();
+			assert (generation > 0);
+			Object revposObj = newAttach.get("revpos");
+			int revpos = generation;
+			if (revposObj != null && revposObj instanceof Integer) {
+				revpos = ((Integer) revposObj).intValue();
+			}
+
+			if (revpos > generation) {
+				return new TDStatus(TDStatus.BAD_REQUEST);
+			}
+
+			Boolean isBase64 = true;
+			File attFile = null;
+
+			byte[] newContents = null;
 			if (newContentBase64 != null) {
-				// New item contains data, so insert it. First decode the data:
-				byte[] newContents;
 				try {
 					newContents = Base64.decode(newContentBase64);
 				} catch (IOException e) {
 					Log.e(TDDatabase.TAG, "IOExeption parsing base64", e);
-					return new TDStatus(TDStatus.BAD_REQUEST);
-				}
-				if (newContents == null) {
-					return new TDStatus(TDStatus.BAD_REQUEST);
-				}
-
-				// Now determine the revpos, i.e. generation # this was added
-				// in. Usually this is
-				// implicit, but a rev being pulled in replication will have it
-				// set already.
-				int generation = rev.getGeneration();
-				assert (generation > 0);
-				Object revposObj = newAttach.get("revpos");
-				int revpos = generation;
-				if (revposObj != null && revposObj instanceof Integer) {
-					revpos = ((Integer) revposObj).intValue();
+					// Not a Base64, Implying file path in newContentBase64 i.e.
+					// 'data' Check if a new/modified attachment
+					isBase64 = false;
 				}
 
-				if (revpos > generation) {
-					return new TDStatus(TDStatus.BAD_REQUEST);
-				}
+				// Whenever there is Base64 data, we need to store(As it means
+				// that we are pulling from cloud). Otherwise only insert in
+				// case of a new attachment.
+				if (revpos == generation || isBase64) {
 
-				// Finally insert the attachment:
-				status = insertAttachmentForSequenceWithNameAndType(
-						new ByteArrayInputStream(newContents), newSequence,
-						name, (String) newAttach.get("content_type"), revpos);
-			} else {
+					if (!isBase64) {
+						attFile = new File(
+								Environment.getExternalStorageDirectory() + "/"
+										+ newContentBase64);
+						FileInputStream fis;
+						ByteArrayOutputStream bos;
+						try {
+							fis = new FileInputStream(attFile);
+							bos = new ByteArrayOutputStream();
+							byte[] buffer = new byte[65536];
+							int bytesRead;
+
+							while ((bytesRead = fis.read(buffer)) != -1) {
+								bos.write(buffer, 0, bytesRead);
+							}
+							fis.close();
+							newContents = bos.toByteArray();
+						} catch (FileNotFoundException e1) {
+							e1.printStackTrace();
+							return new TDStatus(TDStatus.BAD_REQUEST);
+						} catch (IOException e1) {
+							e1.printStackTrace();
+							return new TDStatus(TDStatus.BAD_REQUEST);
+						}
+					}
+
+					// ---------------------------------------------------------------------------
+
+					if (newContents == null) {
+						return new TDStatus(TDStatus.BAD_REQUEST);
+					}
+
+					// TouchDB original
+					// Now determine the revpos, i.e. generation # this was
+					// added
+					// in. Usually this is
+					// implicit, but a rev being pulled in replication will have
+					// it
+					// set already.
+					// int generation = rev.getGeneration();
+					// assert (generation > 0);
+					// Object revposObj = newAttach.get("revpos");
+					// int revpos = generation;
+					// if (revposObj != null && revposObj instanceof Integer) {
+					// revpos = ((Integer) revposObj).intValue();
+					// }
+					//
+					// if (revpos > generation) {
+					// return new TDStatus(TDStatus.BAD_REQUEST);
+					// }
+
+					// Finally insert the attachment:
+					status = insertAttachmentForSequenceWithNameAndType(
+							new ByteArrayInputStream(newContents), newSequence,
+							name, (String) newAttach.get("content_type"),
+							revpos, rev.getDocId());
+
+					// Added By Shubham
+					// ---------------------------------------------------------------------------
+					// if (status.isSuccessful() && !isBase64) {
+					// // Delete file from sdcard
+					// if (attFile != null) {
+					// attFile.delete();
+					// }
+					// }
+					// //
+					// ---------------------------------------------------------------------------
+
+				}
+			}
+			// Original TouchDb
+			// else {
+			// // It's just a stub, so copy the previous revision's attachment
+			// // entry:
+			// // ? Should I enforce that the type and digest (if any) match?
+			// status = copyAttachmentNamedFromSequenceToSequence(name,
+			// parentSequence, newSequence);
+			// }
+			if ((!isBase64 && revpos < generation) || newContentBase64 == null) {
 				// It's just a stub, so copy the previous revision's attachment
-				// entry:
-				// ? Should I enforce that the type and digest (if any) match?
+				// entry. We also need to do the same thing if we have filepath
+				// in data and revpos < generation
 				status = copyAttachmentNamedFromSequenceToSequence(name,
 						parentSequence, newSequence);
 			}
@@ -1786,8 +1944,8 @@ public class TDDatabase extends Observable {
 						Long.toString(oldRev.getSequence()), filename };
 				database.execSQL(
 						"INSERT INTO attachments "
-								+ "(sequence, filename, key, type, length, revpos) "
-								+ "SELECT ?, filename, key, type, length, revpos FROM attachments "
+								+ "(sequence, filename, key, type, length, revpos, filepath) "
+								+ "SELECT ?, filename, key, type, length, revpos, filepath FROM attachments "
 								+ "WHERE sequence=? AND filename != ?", args);
 			}
 
@@ -1795,7 +1953,7 @@ public class TDDatabase extends Observable {
 				// If not deleting, add a new attachment entry:
 				TDStatus insertStatus = insertAttachmentForSequenceWithNameAndType(
 						contentStream, newRev.getSequence(), filename,
-						contentType, newRev.getGeneration());
+						contentType, newRev.getGeneration(), newRev.getDocId());
 				status.setCode(insertStatus.getCode());
 
 				if (!status.isSuccessful()) {

@@ -82,7 +82,7 @@ public class TDPusher extends TDReplicator implements Observer {
 
 	@Override
 	public void beginReplicating() {
-		
+
 		// If we're still waiting to create the remote db, do nothing now. (This
 		// method will be
 		// re-invoked after that request finishes; see maybeCreateRemoteDB()
@@ -125,7 +125,7 @@ public class TDPusher extends TDReplicator implements Observer {
 			asyncTaskStarted(); // prevents stopped() from being called when
 								// other tasks finish
 		}
-	
+
 		super.beginReplicating();
 	}
 
@@ -150,7 +150,7 @@ public class TDPusher extends TDReplicator implements Observer {
 			Map<String, Object> change = (Map<String, Object>) data;
 			// Skip revisions that originally came from the database I'm syncing
 			// to:
-			String source =  (String) change.get("source");
+			String source = (String) change.get("source");
 			if (source != null && source.equals(remote.toExternalForm())) {
 				return;
 			}
@@ -169,7 +169,7 @@ public class TDPusher extends TDReplicator implements Observer {
 	}
 
 	@Override
-	public void processInbox(final TDRevisionList inbox) {		
+	public void processInbox(final TDRevisionList inbox) {
 		if (inbox.size() == 0) {
 			scheduleRefiller();
 			return;
@@ -205,6 +205,9 @@ public class TDPusher extends TDReplicator implements Observer {
 							error = e;
 							stop();
 						} else if (results.size() != 0) {
+							// OPT: Go through the missing revs and send only
+							// the latest missing rev to cloud - Shubham
+
 							// Go through the list of local changes again,
 							// selecting the ones the destination server
 							// said were missing and mapping them to a JSON
@@ -217,6 +220,8 @@ public class TDPusher extends TDReplicator implements Observer {
 								if (resultDoc != null) {
 									List<String> revs = (List<String>) resultDoc
 											.get("missing");
+									// if local rev is in the list of missing
+									// revs
 									if (revs != null
 											&& revs.contains(rev.getRevId())) {
 										// remote server needs this revision
@@ -235,6 +240,10 @@ public class TDPusher extends TDReplicator implements Observer {
 											// OPT: Should send docs with many
 											// or big attachments as
 											// multipart/related
+
+											// OPT: Only include the attachments
+											// if it's the latest missing rev :
+											// Query the missing revs for this doc to know the required attachments
 											TDStatus status = db
 													.loadRevisionBody(
 															rev,
@@ -302,8 +311,9 @@ public class TDPusher extends TDReplicator implements Observer {
 											setChangesProcessed(getChangesProcessed()
 													+ numDocsToSend);
 											asyncTaskFinished(1);
-											
-											scheduleRefiller(new Date().getTime());
+
+											scheduleRefiller(new Date()
+													.getTime());
 										}
 									});
 
@@ -318,7 +328,7 @@ public class TDPusher extends TDReplicator implements Observer {
 								removeLogForRevision(rev);
 							}
 							db.endTransaction(true);
-							
+
 							scheduleRefiller(new Date().getTime());
 						}
 						asyncTaskFinished(1);

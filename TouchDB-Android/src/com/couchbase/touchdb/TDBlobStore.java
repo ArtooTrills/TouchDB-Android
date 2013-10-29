@@ -32,261 +32,301 @@ import java.util.Set;
 import android.util.Log;
 
 /**
- * A persistent content-addressable store for arbitrary-size data blobs.
- * Each blob is stored as a file named by its SHA-1 digest.
+ * A persistent content-addressable store for arbitrary-size data blobs. Each
+ * blob is stored as a file named by its SHA-1 digest.
  */
 public class TDBlobStore {
 
-    public static String FILE_EXTENSION = ".blob";
-    public static String TMP_FILE_EXTENSION = ".blobtmp";
-    public static String TMP_FILE_PREFIX = "tmp";
+	public static String FILE_EXTENSION = ".blob";
+	public static String TMP_FILE_EXTENSION = ".blobtmp";
+	public static String TMP_FILE_PREFIX = "tmp";
 
-    private String path;
+	private String path;
 
-    public TDBlobStore(String path) {
-        this.path = path;
-        File directory = new File(path);
-        if(!directory.exists()) {
-            boolean result = directory.mkdirs();
-            if(result == false) {
-                throw new IllegalArgumentException("Unable to create directory for blob store");
-            }
-        }
-        else if(!directory.isDirectory()) {
-            throw new IllegalArgumentException("Directory for blob store is not a directory");
-        }
-    }
+	public TDBlobStore(String path) {
+		this.path = path;
+		File directory = new File(path);
+		if (!directory.exists()) {
+			boolean result = directory.mkdirs();
+			if (result == false) {
+				throw new IllegalArgumentException(
+						"Unable to create directory for blob store");
+			}
+		} else if (!directory.isDirectory()) {
+			throw new IllegalArgumentException(
+					"Directory for blob store is not a directory");
+		}
+	}
 
-    public static TDBlobKey keyForBlob(byte[] data) {
-        MessageDigest md;
-        try {
-            md = MessageDigest.getInstance("SHA-1");
-        } catch (NoSuchAlgorithmException e) {
-            Log.e(TDDatabase.TAG, "Error, SHA-1 digest is unavailable.");
-            return null;
-        }
-        byte[] sha1hash = new byte[40];
-        md.update(data, 0, data.length);
-        sha1hash = md.digest();
-        TDBlobKey result = new TDBlobKey(sha1hash);
-        return result;
-    }
+	public static TDBlobKey keyForBlob(byte[] data) {
+		MessageDigest md;
+		try {
+			md = MessageDigest.getInstance("SHA-1");
+		} catch (NoSuchAlgorithmException e) {
+			Log.e(TDDatabase.TAG, "Error, SHA-1 digest is unavailable.");
+			return null;
+		}
+		byte[] sha1hash = new byte[40];
+		md.update(data, 0, data.length);
+		sha1hash = md.digest();
+		TDBlobKey result = new TDBlobKey(sha1hash);
+		return result;
+	}
 
-    public static TDBlobKey keyForBlobFromFile(File file) {
-        MessageDigest md;
-        try {
-            md = MessageDigest.getInstance("SHA-1");
-        } catch (NoSuchAlgorithmException e) {
-            Log.e(TDDatabase.TAG, "Error, SHA-1 digest is unavailable.");
-            return null;
-        }
-        byte[] sha1hash = new byte[40];
+	public static TDBlobKey keyForBlobFromFile(File file) {
+		MessageDigest md;
+		try {
+			md = MessageDigest.getInstance("SHA-1");
+		} catch (NoSuchAlgorithmException e) {
+			Log.e(TDDatabase.TAG, "Error, SHA-1 digest is unavailable.");
+			return null;
+		}
+		byte[] sha1hash = new byte[40];
 
-        try {
-            FileInputStream fis = new FileInputStream(file);
-            byte[] buffer = new byte[65536];
-            int lenRead = fis.read(buffer);
-            while(lenRead > 0) {
-                md.update(buffer, 0, lenRead);
-                lenRead = fis.read(buffer);
-            }
-            fis.close();
-        } catch (IOException e) {
-            Log.e(TDDatabase.TAG, "Error readin tmp file to compute key");
-        }
+		try {
+			FileInputStream fis = new FileInputStream(file);
+			byte[] buffer = new byte[65536];
+			int lenRead = fis.read(buffer);
+			while (lenRead > 0) {
+				md.update(buffer, 0, lenRead);
+				lenRead = fis.read(buffer);
+			}
+			fis.close();
+		} catch (IOException e) {
+			Log.e(TDDatabase.TAG, "Error readin tmp file to compute key");
+		}
 
-        sha1hash = md.digest();
-        TDBlobKey result = new TDBlobKey(sha1hash);
-        return result;
-    }
+		sha1hash = md.digest();
+		TDBlobKey result = new TDBlobKey(sha1hash);
+		return result;
+	}
 
-    public String pathForKey(TDBlobKey key) {
-        return path + File.separator + TDBlobKey.convertToHex(key.getBytes()) + FILE_EXTENSION;
-    }
+	public String pathForKey(TDBlobKey key) {
+		return path + File.separator + TDBlobKey.convertToHex(key.getBytes())
+				+ FILE_EXTENSION;
+	}
 
-    public long getSizeOfBlob(TDBlobKey key) {
-        String path = pathForKey(key);
-        File file = new File(path);
-        return file.length();
-    }
+	// Added By Shubham - Storing the attachment as
+	// docid_revpos_filename.file_ext
+	public String pathForAtt(String name, String docId, int revpos) {
+		String filename = docId + "_" + revpos + "_" + name;
+		return path + File.separator + filename + FILE_EXTENSION;
+	}
 
-    public boolean getKeyForFilename(TDBlobKey outKey, String filename) {
-        if(!filename.endsWith(FILE_EXTENSION)) {
-            return false;
-        }
-        //trim off extension
-        String rest = filename.substring(path.length() + 1, filename.length() - FILE_EXTENSION.length());
+	public long getSizeOfBlob(TDBlobKey key) {
+		String path = pathForKey(key);
+		File file = new File(path);
+		return file.length();
+	}
 
-        outKey.setBytes(TDBlobKey.convertFromHex(rest));
+	// Added By Shubham
+	public long getSizeOfBlob(String path) {
+		File file = new File(path);
+		return file.length();
+	}
 
-        return true;
-    }
+	public boolean getKeyForFilename(TDBlobKey outKey, String filename) {
+		if (!filename.endsWith(FILE_EXTENSION)) {
+			return false;
+		}
+		// trim off extension
+		String rest = filename.substring(path.length() + 1, filename.length()
+				- FILE_EXTENSION.length());
 
-    public byte[] blobForKey(TDBlobKey key) {
-        String path = pathForKey(key);
-        File file = new File(path);
-        byte[] result = null;
-        try {
-            result = getBytesFromFile(file);
-        } catch (IOException e) {
-            Log.e(TDDatabase.TAG, "Error reading file", e);
-        }
-        return result;
-    }
+		outKey.setBytes(TDBlobKey.convertFromHex(rest));
 
-    public InputStream blobStreamForKey(TDBlobKey key) {
-        String path = pathForKey(key);
-        File file = new File(path);
-        if(file.canRead()) {
-            try {
-                return new FileInputStream(file);
-            } catch (FileNotFoundException e) {
-                Log.e(TDDatabase.TAG, "Unexpected file not found in blob store", e);
-                return null;
-            }
-        }
-        return null;
-    }
+		return true;
+	}
 
-    public boolean storeBlobStream(InputStream inputStream, TDBlobKey outKey) {
+	public byte[] blobForKey(TDBlobKey key) {
+		String path = pathForKey(key);
+		File file = new File(path);
+		byte[] result = null;
+		try {
+			result = getBytesFromFile(file);
+		} catch (IOException e) {
+			Log.e(TDDatabase.TAG, "Error reading file", e);
+		}
+		return result;
+	}
+	
+	//Added By Shubham - Getting Blob for the attachment named docid_revpos_name
+	public byte[] blobForAtt(String name, String docId, int revpos) {
+		String path = pathForAtt(name, docId, revpos);
+		File file = new File(path);
+		byte[] result = null;
+		try {
+			result = getBytesFromFile(file);
+		} catch (IOException e) {
+			Log.e(TDDatabase.TAG, "Error reading file", e);
+		}
+		return result;
+	}
 
-        File tmp = null;
-        try {
-            tmp = File.createTempFile(TMP_FILE_PREFIX, TMP_FILE_EXTENSION, new File(path));
-            FileOutputStream fos = new FileOutputStream(tmp);
-            byte[] buffer = new byte[65536];
-            int lenRead = inputStream.read(buffer);
-            while(lenRead > 0) {
-                fos.write(buffer, 0, lenRead);
-                lenRead = inputStream.read(buffer);
-            }
-            inputStream.close();
-            fos.close();
-        } catch (IOException e) {
-            Log.e(TDDatabase.TAG, "Error writing blog to tmp file", e);
-            return false;
-        }
+	public InputStream blobStreamForKey(TDBlobKey key) {
+		String path = pathForKey(key);
+		File file = new File(path);
+		if (file.canRead()) {
+			try {
+				return new FileInputStream(file);
+			} catch (FileNotFoundException e) {
+				Log.e(TDDatabase.TAG,
+						"Unexpected file not found in blob store", e);
+				return null;
+			}
+		}
+		return null;
+	}
 
-        TDBlobKey newKey = keyForBlobFromFile(tmp);
-        outKey.setBytes(newKey.getBytes());
-        String path = pathForKey(outKey);
-        File file = new File(path);
+	public boolean storeBlobStream(InputStream inputStream, TDBlobKey outKey,
+			String name, String docId, int revpos) {
 
-        if(file.canRead()) {
-            // object with this hash already exists, we should delete tmp file and return true
-            tmp.delete();
-            return true;
-        } else {
-            // does not exist, we should rename tmp file to this name
-            tmp.renameTo(file);
-        }
-        return true;
-    }
+		File tmp = null;
+		try {
+			tmp = File.createTempFile(TMP_FILE_PREFIX, TMP_FILE_EXTENSION,
+					new File(path));
+			FileOutputStream fos = new FileOutputStream(tmp);
+			byte[] buffer = new byte[65536];
+			int lenRead = inputStream.read(buffer);
+			while (lenRead > 0) {
+				fos.write(buffer, 0, lenRead);
+				lenRead = inputStream.read(buffer);
+			}
+			inputStream.close();
+			fos.close();
+		} catch (IOException e) {
+			Log.e(TDDatabase.TAG, "Error writing blog to tmp file", e);
+			return false;
+		}
 
-    public boolean storeBlob(byte[] data, TDBlobKey outKey) {
-        TDBlobKey newKey = keyForBlob(data);
-        outKey.setBytes(newKey.getBytes());
-        String path = pathForKey(outKey);
-        File file = new File(path);
-        if(file.canRead()) {
-            return true;
-        }
+		TDBlobKey newKey = keyForBlobFromFile(tmp);
+		outKey.setBytes(newKey.getBytes());
 
-        FileOutputStream fos = null;
-        try {
-            fos = new FileOutputStream(file);
-            fos.write(data);
-        } catch (FileNotFoundException e) {
-            Log.e(TDDatabase.TAG, "Error opening file for output", e);
-            return false;
-        } catch(IOException ioe) {
-            Log.e(TDDatabase.TAG, "Error writing to file", ioe);
-            return false;
-        } finally {
-            if(fos != null) {
-                try {
-                    fos.close();
-                } catch (IOException e) {
-                    // ignore
-                }
-            }
-        }
+		// Original TouchDB
+		// String path = pathForKey(name, docId);
 
-        return true;
-    }
+		// Added by Shubham ---------------------
+		String path = pathForAtt(name, docId, revpos);
+		// ---------------------------------------
+		
+		File file = new File(path);
 
-    private static byte[] getBytesFromFile(File file) throws IOException {
-        InputStream is = new FileInputStream(file);
+		if (file.canRead()) {
+			// object with this hash already exists, we should delete tmp file
+			// and return true
+			tmp.delete();
+			return true;
+		} else {
+			// does not exist, we should rename tmp file to this name
+			tmp.renameTo(file);
+		}
+		return true;
+	}
 
-        // Get the size of the file
-        long length = file.length();
+	public boolean storeBlob(byte[] data, TDBlobKey outKey) {
+		TDBlobKey newKey = keyForBlob(data);
+		outKey.setBytes(newKey.getBytes());
+		String path = pathForKey(outKey);
+		File file = new File(path);
+		if (file.canRead()) {
+			return true;
+		}
 
-        // Create the byte array to hold the data
-        byte[] bytes = new byte[(int)length];
+		FileOutputStream fos = null;
+		try {
+			fos = new FileOutputStream(file);
+			fos.write(data);
+		} catch (FileNotFoundException e) {
+			Log.e(TDDatabase.TAG, "Error opening file for output", e);
+			return false;
+		} catch (IOException ioe) {
+			Log.e(TDDatabase.TAG, "Error writing to file", ioe);
+			return false;
+		} finally {
+			if (fos != null) {
+				try {
+					fos.close();
+				} catch (IOException e) {
+					// ignore
+				}
+			}
+		}
 
-        // Read in the bytes
-        int offset = 0;
-        int numRead = 0;
-        while (offset < bytes.length
-               && (numRead=is.read(bytes, offset, bytes.length-offset)) >= 0) {
-            offset += numRead;
-        }
+		return true;
+	}
 
-        // Ensure all the bytes have been read in
-        if (offset < bytes.length) {
-            throw new IOException("Could not completely read file "+file.getName());
-        }
+	private static byte[] getBytesFromFile(File file) throws IOException {
+		InputStream is = new FileInputStream(file);
 
-        // Close the input stream and return bytes
-        is.close();
-        return bytes;
-    }
+		// Get the size of the file
+		long length = file.length();
 
-    public Set<TDBlobKey> allKeys() {
-        Set<TDBlobKey> result = new HashSet<TDBlobKey>();
-        File file = new File(path);
-        File[] contents = file.listFiles();
-        for (File attachment : contents) {
-            TDBlobKey attachmentKey = new TDBlobKey();
-            getKeyForFilename(attachmentKey, attachment.getPath());
-            result.add(attachmentKey);
-        }
-        return result;
-    }
+		// Create the byte array to hold the data
+		byte[] bytes = new byte[(int) length];
 
-    public int count() {
-        File file = new File(path);
-        File[] contents = file.listFiles();
-        return contents.length;
-    }
+		// Read in the bytes
+		int offset = 0;
+		int numRead = 0;
+		while (offset < bytes.length
+				&& (numRead = is.read(bytes, offset, bytes.length - offset)) >= 0) {
+			offset += numRead;
+		}
 
-    public long totalDataSize() {
-        long total = 0;
-        File file = new File(path);
-        File[] contents = file.listFiles();
-        for (File attachment : contents) {
-            total += attachment.length();
-        }
-        return total;
-    }
+		// Ensure all the bytes have been read in
+		if (offset < bytes.length) {
+			throw new IOException("Could not completely read file "
+					+ file.getName());
+		}
 
-    public int deleteBlobsExceptWithKeys(List<TDBlobKey> keysToKeep) {
-        int numDeleted = 0;
-        File file = new File(path);
-        File[] contents = file.listFiles();
-        for (File attachment : contents) {
-            TDBlobKey attachmentKey = new TDBlobKey();
-            getKeyForFilename(attachmentKey, attachment.getPath());
-            if(!keysToKeep.contains(attachmentKey)) {
-                boolean result = attachment.delete();
-                if(result) {
-                    ++numDeleted;
-                }
-                else {
-                    Log.e(TDDatabase.TAG, "Error deleting attachmetn");
-                }
-            }
-        }
-        return numDeleted;
-    }
+		// Close the input stream and return bytes
+		is.close();
+		return bytes;
+	}
+
+	public Set<TDBlobKey> allKeys() {
+		Set<TDBlobKey> result = new HashSet<TDBlobKey>();
+		File file = new File(path);
+		File[] contents = file.listFiles();
+		for (File attachment : contents) {
+			TDBlobKey attachmentKey = new TDBlobKey();
+			getKeyForFilename(attachmentKey, attachment.getPath());
+			result.add(attachmentKey);
+		}
+		return result;
+	}
+
+	public int count() {
+		File file = new File(path);
+		File[] contents = file.listFiles();
+		return contents.length;
+	}
+
+	public long totalDataSize() {
+		long total = 0;
+		File file = new File(path);
+		File[] contents = file.listFiles();
+		for (File attachment : contents) {
+			total += attachment.length();
+		}
+		return total;
+	}
+
+	public int deleteBlobsExceptWithKeys(List<TDBlobKey> keysToKeep) {
+		int numDeleted = 0;
+		File file = new File(path);
+		File[] contents = file.listFiles();
+		for (File attachment : contents) {
+			TDBlobKey attachmentKey = new TDBlobKey();
+			getKeyForFilename(attachmentKey, attachment.getPath());
+			if (!keysToKeep.contains(attachmentKey)) {
+				boolean result = attachment.delete();
+				if (result) {
+					++numDeleted;
+				} else {
+					Log.e(TDDatabase.TAG, "Error deleting attachmetn");
+				}
+			}
+		}
+		return numDeleted;
+	}
 }
