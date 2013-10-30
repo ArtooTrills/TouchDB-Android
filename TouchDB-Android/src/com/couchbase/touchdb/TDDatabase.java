@@ -621,13 +621,20 @@ public class TDDatabase extends Observable {
 		return newJson;
 	}
 
+	// Added By Shubham
+	public Map<String, Object> extraPropertiesForRevision(TDRevision rev,
+			EnumSet<TDContentOptions> contentOptions) {
+		return extraPropertiesForRevision(rev, contentOptions, null);
+	}
+
 	/**
 	 * Inserts the _id, _rev and _attachments properties into the JSON data and
 	 * stores it in rev. Rev must already have its revID and sequence properties
 	 * set.
 	 */
+	// Added an extra argument missingRevs - Shubham
 	public Map<String, Object> extraPropertiesForRevision(TDRevision rev,
-			EnumSet<TDContentOptions> contentOptions) {
+			EnumSet<TDContentOptions> contentOptions, List<String> missingRevs) {
 
 		String docId = rev.getDocId();
 		String revId = rev.getRevId();
@@ -645,7 +652,7 @@ public class TDDatabase extends Observable {
 
 		// Modified By Shubham - Passing the whole rev instead of just sequence
 		Map<String, Object> attachmentsDict = getAttachmentsDictForSequenceWithContent(
-				rev, withAttachments, contentOptions);
+				rev, withAttachments, contentOptions, missingRevs);
 
 		// Get more optional stuff to put in the properties:
 		// OPT: This probably ends up making redundant SQL queries if multiple
@@ -715,15 +722,24 @@ public class TDDatabase extends Observable {
 		return result;
 	}
 
+	// Added By Shubham
+	public void expandStoredJSONIntoRevisionWithAttachments(byte[] json,
+			TDRevision rev, EnumSet<TDContentOptions> contentOptions) {
+		expandStoredJSONIntoRevisionWithAttachments(json, rev, contentOptions,
+				null);
+	}
+
 	/**
 	 * Inserts the _id, _rev and _attachments properties into the JSON data and
 	 * stores it in rev. Rev must already have its revID and sequence properties
 	 * set.
 	 */
+	// Added an extra argument missingRevs - Shubham
 	public void expandStoredJSONIntoRevisionWithAttachments(byte[] json,
-			TDRevision rev, EnumSet<TDContentOptions> contentOptions) {
+			TDRevision rev, EnumSet<TDContentOptions> contentOptions,
+			List<String> missingRevs) {
 		Map<String, Object> extra = extraPropertiesForRevision(rev,
-				contentOptions);
+				contentOptions, missingRevs);
 		if (json != null) {
 			rev.setJson(appendDictToJSON(json, extra));
 		} else {
@@ -815,8 +831,16 @@ public class TDDatabase extends Observable {
 				EnumSet.of(TDContentOptions.TDNoBody)) != null;
 	}
 
+	// Added By Shubham
 	public TDStatus loadRevisionBody(TDRevision rev,
 			EnumSet<TDContentOptions> contentOptions) {
+		return loadRevisionBody(rev, contentOptions, null);
+	}
+
+	// Added extra argument missingRevs to be passed to
+	// expandStoredJSONIntoRevisionWithAttachments
+	public TDStatus loadRevisionBody(TDRevision rev,
+			EnumSet<TDContentOptions> contentOptions, List<String> missingRevs) {
 		if (rev.getBody() != null) {
 			return new TDStatus(TDStatus.OK);
 		}
@@ -832,7 +856,7 @@ public class TDDatabase extends Observable {
 				result.setCode(TDStatus.OK);
 				rev.setSequence(cursor.getLong(0));
 				expandStoredJSONIntoRevisionWithAttachments(cursor.getBlob(1),
-						rev, contentOptions);
+						rev, contentOptions, missingRevs);
 			}
 		} catch (SQLException e) {
 			Log.e(TDDatabase.TAG, "Error loading revision body", e);
@@ -1568,26 +1592,42 @@ public class TDDatabase extends Observable {
 	/**
 	 * Constructs an "_attachments" dictionary for a revision, to be inserted in
 	 * its JSON body.
-	 * 
-	 * @param contentOptions
 	 */
 	public Map<String, Object> getAttachmentsDictForSequenceWithContent(
 			TDRevision rev, boolean withContent,
-			EnumSet<TDContentOptions> contentOptions) {
+			EnumSet<TDContentOptions> contentOptions, List<String> missingRevs) {
 
 		long sequence = rev.getSequence();
 		assert (sequence > 0);
 
 		Cursor cursor = null;
-
+		String sql;
 		String args[] = { Long.toString(sequence) };
-		try {
-			// Added filepath - Shubham
-			cursor = database
-					.rawQuery(
-							"SELECT filename, key, type, length, revpos, filepath FROM attachments WHERE sequence=?",
-							args);
+		String revId = rev.getRevId();
+		String minGeneration = revId.substring(0, revId.indexOf('-'));
 
+		// Added By Shubham ----------------
+		if (missingRevs != null) {
+			// We are passing missingRevs while pushing
+			// find the min revID , last one assuming reverse sorted
+			String revID = missingRevs.get(missingRevs.size() - 1);
+			minGeneration = revID.substring(0, revID.indexOf('-'));
+			sql = "SELECT t1.filename, t1.key, t1.type, t1.length, t1.revpos, t1.filepath from (SELECT filename, key, type, length, revpos, filepath FROM attachments WHERE sequence=?) t1 LEFT JOIN (SELECT filename, key, type, length, revpos, filepath FROM attachments group by filename order by revpos desc) t2  ON t1.filename = t2.filename";
+		} else {
+			sql = "SELECT filename, key, type, length, revpos, filepath FROM attachments WHERE sequence=?";
+		}
+		// --------------------------------------
+
+		try {
+
+			// Original TouchDb
+			// cursor = database
+			// .rawQuery(
+			// "SELECT filename, key, type, length, revpos FROM attachments WHERE sequence=?",
+			// args);
+			// Added By Shubham --------------------------
+			cursor = database.rawQuery(sql, args);
+			// -------------------------------------------
 			if (!cursor.moveToFirst()) {
 				return null;
 			}
@@ -1612,8 +1652,8 @@ public class TDDatabase extends Observable {
 				// }
 				// }
 
-				// Modified By Shubham
-				if (withContent && revpos == rev.getGeneration()) {
+				// Modified By Shubham ------------
+				if (withContent && revpos >= Integer.parseInt(minGeneration)) {
 					byte[] data = attachments.blobForAtt(cursor.getString(0),
 							rev.getDocId(), revpos);
 					if (data != null) {
@@ -1622,7 +1662,7 @@ public class TDDatabase extends Observable {
 						Log.w(TDDatabase.TAG, "Error loading attachment");
 					}
 				}
-
+				// ----------------------------------
 				Map<String, Object> attachment = new HashMap<String, Object>();
 				if (!contentOptions
 						.contains(TDContentOptions.TDIncludeAttachmentsDataAsPath)) {
@@ -1637,7 +1677,7 @@ public class TDDatabase extends Observable {
 				attachment.put("digest", digestString);
 				attachment.put("content_type", cursor.getString(2));
 				attachment.put("length", cursor.getInt(3));
-				attachment.put("revpos", cursor.getInt(4));
+				attachment.put("revpos", revpos);
 				result.put(cursor.getString(0), attachment);
 
 				cursor.moveToNext();
@@ -1723,6 +1763,26 @@ public class TDDatabase extends Observable {
 		}
 		if (newAttachments == null || newAttachments.size() == 0
 				|| rev.isDeleted()) {
+			// Added By Shubham --------------------------------
+			if (rev.isDeleted() && parentSequence > 0) {
+				// delete the attachments from blob store
+				String[] args = { Long.toString(parentSequence) };
+				String sql = "SELECT filepath FROM attachments WHERE sequence = ? ";
+				Cursor cursor = database.rawQuery(sql, args);
+				if (!cursor.moveToFirst()) {
+					return new TDStatus(TDStatus.OK);
+				}
+				while (!cursor.isAfterLast()) {
+					String path = cursor.getString(0);
+					File attFile = new File(path);
+					if (attFile != null) {
+						attFile.delete();
+					}
+					cursor.moveToNext();
+				}
+
+			}
+			// -------------------------------------------------
 			return new TDStatus(TDStatus.OK);
 		}
 
@@ -1843,13 +1903,12 @@ public class TDDatabase extends Observable {
 
 					// Added By Shubham
 					// ---------------------------------------------------------------------------
-					// if (status.isSuccessful() && !isBase64) {
-					// // Delete file from sdcard
-					// if (attFile != null) {
-					// attFile.delete();
-					// }
-					// }
-					// //
+					if (status.isSuccessful() && !isBase64) {
+						// Delete file from sdcard
+						if (attFile != null) {
+							attFile.delete();
+						}
+					}
 					// ---------------------------------------------------------------------------
 
 				}
@@ -1862,6 +1921,8 @@ public class TDDatabase extends Observable {
 			// status = copyAttachmentNamedFromSequenceToSequence(name,
 			// parentSequence, newSequence);
 			// }
+
+			// Added By Shubham
 			if ((!isBase64 && revpos < generation) || newContentBase64 == null) {
 				// It's just a stub, so copy the previous revision's attachment
 				// entry. We also need to do the same thing if we have filepath
@@ -1942,6 +2003,7 @@ public class TDDatabase extends Observable {
 				// Copy all attachment rows _except_ for the one being updated:
 				String[] args = { Long.toString(newRev.getSequence()),
 						Long.toString(oldRev.getSequence()), filename };
+				// Added filepath - Shubham
 				database.execSQL(
 						"INSERT INTO attachments "
 								+ "(sequence, filename, key, type, length, revpos, filepath) "
@@ -1960,6 +2022,9 @@ public class TDDatabase extends Observable {
 					return null;
 				}
 			}
+			// else as we are deleting, so no need to insert any row in
+			// attachments for the new rev
+			// TODO: delete the attachment from the blob store - Shubham
 
 			status.setCode((contentStream != null) ? TDStatus.CREATED
 					: TDStatus.OK);

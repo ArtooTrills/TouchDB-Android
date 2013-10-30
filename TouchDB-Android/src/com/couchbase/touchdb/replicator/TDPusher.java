@@ -2,6 +2,8 @@ package com.couchbase.touchdb.replicator;
 
 import java.net.URL;
 import java.util.ArrayList;
+import java.util.Collections;
+import java.util.Comparator;
 import java.util.Date;
 import java.util.EnumSet;
 import java.util.HashMap;
@@ -205,70 +207,161 @@ public class TDPusher extends TDReplicator implements Observer {
 							error = e;
 							stop();
 						} else if (results.size() != 0) {
-							// OPT: Go through the missing revs and send only
+							// Modified By Shubham
+							// ------------------------------
+							// Go through the missing revs and send only
 							// the latest missing rev to cloud - Shubham
 
-							// Go through the list of local changes again,
-							// selecting the ones the destination server
-							// said were missing and mapping them to a JSON
-							// dictionary in the form _bulk_docs wants:
 							List<Object> docsToSend = new ArrayList<Object>();
-							for (TDRevision rev : inbox) {
-								Map<String, Object> properties = null;
-								Map<String, Object> resultDoc = (Map<String, Object>) results
-										.get(rev.getDocId());
-								if (resultDoc != null) {
-									List<String> revs = (List<String>) resultDoc
-											.get("missing");
-									// if local rev is in the list of missing
-									// revs
-									if (revs != null
-											&& revs.contains(rev.getRevId())) {
-										// remote server needs this revision
-										// Get the revision's properties
-										if (rev.isDeleted()) {
-											properties = new HashMap<String, Object>();
-											properties.put("_id",
-													rev.getDocId());
-											properties.put("_rev",
-													rev.getRevId());
-											properties.put("_deleted", true);
-										} else {
-											// OPT: Shouldn't include all
-											// attachment bodies, just ones that
-											// have changed
-											// OPT: Should send docs with many
-											// or big attachments as
-											// multipart/related
 
-											// OPT: Only include the attachments
-											// if it's the latest missing rev :
-											// Query the missing revs for this doc to know the required attachments
-											TDStatus status = db
-													.loadRevisionBody(
-															rev,
-															EnumSet.of(TDDatabase.TDContentOptions.TDIncludeAttachments));
-											if (!status.isSuccessful()) {
-												Log.w(TDDatabase.TAG,
-														String.format(
-																"%s: Couldn't get local contents of %s",
-																this, rev));
-											} else {
-												properties = new HashMap<String, Object>(
-														rev.getProperties());
+							// Get All the distinct docIds
+							List<String> docIds = new ArrayList<String>();
+							for (TDRevision rev : inbox) {
+								if (docIds.indexOf(rev.getDocId()) == -1) {
+									docIds.add(rev.getDocId());
+								}
+							}
+
+							for (int i = 0; i < docIds.size(); i++) {
+								String docId = docIds.get(i);
+								Map<String, Object> resultDoc = (Map<String, Object>) results
+										.get(docId);
+								if (resultDoc != null) {
+									List<String> MissingRevs = (List<String>) resultDoc
+											.get("missing");
+									if (MissingRevs != null) {
+										// sort MissingRevs
+
+										Collections.sort(MissingRevs,
+												new mComparable());
+
+										// Get the latest revID
+										String LatestMissingRevId = MissingRevs
+												.get(0);
+
+										// Finding the latest missing rev in
+										// list of local changes to post to bulk
+										// docs
+										// Should I perform a sqlite query
+										// instead ?
+										for (TDRevision rev : inbox) {
+											if (rev.getDocId().contentEquals(
+													docId)
+													&& rev.getRevId()
+															.contentEquals(
+																	LatestMissingRevId)) {
+												Map<String, Object> properties = null;
+												// remote server needs this
+												// revision
+												// Get the revision's properties
+												if (rev.isDeleted()) {
+													properties = new HashMap<String, Object>();
+													properties.put("_id",
+															rev.getDocId());
+													properties.put("_rev",
+															rev.getRevId());
+													properties.put("_deleted",
+															true);
+												} else {
+													// Added an extra Argument
+													// MissingRevs - Shubham
+													TDStatus status = db
+															.loadRevisionBody(
+																	rev,
+																	EnumSet.of(TDDatabase.TDContentOptions.TDIncludeAttachments),
+																	MissingRevs);
+													if (!status.isSuccessful()) {
+														Log.w(TDDatabase.TAG,
+																String.format(
+																		"%s: Couldn't get local contents of %s",
+																		this,
+																		rev));
+													} else {
+														properties = new HashMap<String, Object>(
+																rev.getProperties());
+													}
+												}
+												if (properties != null) {
+													// Add the _revisions list:
+													properties.put(
+															"_revisions",
+															db.getRevisionHistoryDict(rev));
+													// now add it to the docs to
+													// send
+													docsToSend.add(properties);
+												}
+
 											}
-										}
-										if (properties != null) {
-											// Add the _revisions list:
-											properties.put(
-													"_revisions",
-													db.getRevisionHistoryDict(rev));
-											// now add it to the docs to send
-											docsToSend.add(properties);
 										}
 									}
 								}
 							}
+							// ------------------------------------------------
+
+							// Original TouchDB
+							// Go through the list of local changes again,
+							// selecting the ones the destination server
+							// said were missing and mapping them to a JSON
+							// dictionary in the form _bulk_docs wants:
+							// List<Object> docsToSend = new
+							// ArrayList<Object>();
+							// for (TDRevision rev : inbox) {
+							// Map<String, Object> properties = null;
+							// Map<String, Object> resultDoc = (Map<String,
+							// Object>) results
+							// .get(rev.getDocId());
+							// if (resultDoc != null) {
+							// List<String> revs = (List<String>) resultDoc
+							// .get("missing");
+							// if (revs != null
+							// && revs.contains(rev.getRevId())) {
+							// // remote server needs this revision
+							// // Get the revision's properties
+							// if (rev.isDeleted()) {
+							// properties = new HashMap<String, Object>();
+							// properties.put("_id",
+							// rev.getDocId());
+							// properties.put("_rev",
+							// rev.getRevId());
+							// properties.put("_deleted", true);
+							// } else {
+							// // OPT: Shouldn't include all
+							// // attachment bodies, just ones that
+							// // have changed
+							// // OPT: Should send docs with many
+							// // or big attachments as
+							// // multipart/related
+							//
+							// // OPT: Only include the attachments
+							// // if it's the latest missing rev :
+							// // Query the missing revs for this
+							// // doc to know the required
+							// // attachments
+							// TDStatus status = db
+							// .loadRevisionBody(
+							// rev,
+							// EnumSet.of(TDDatabase.TDContentOptions.TDIncludeAttachments));
+							// if (!status.isSuccessful()) {
+							// Log.w(TDDatabase.TAG,
+							// String.format(
+							// "%s: Couldn't get local contents of %s",
+							// this, rev));
+							// } else {
+							// properties = new HashMap<String, Object>(
+							// rev.getProperties());
+							// }
+							// }
+							// if (properties != null) {
+							// // Add the _revisions list:
+							// properties.put(
+							// "_revisions",
+							// db.getRevisionHistoryDict(rev));
+							// // now add it to the docs to send
+							// docsToSend.add(properties);
+							// }
+							// }
+							// }
+							// }
 
 							// Post the revisions to the destination.
 							// "new_edits":false means that the server should
@@ -335,6 +428,15 @@ public class TDPusher extends TDReplicator implements Observer {
 					}
 
 				});
+	}
+
+	public class mComparable implements Comparator<String> {
+
+		@Override
+		public int compare(String o1, String o2) {
+			int result = o1.compareTo(o2);
+			return (result > 0 ? -1 : (result == 0 ? 0 : 1));
+		}
 	}
 
 }
