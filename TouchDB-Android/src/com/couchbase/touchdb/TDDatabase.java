@@ -1751,6 +1751,8 @@ public class TDDatabase extends Observable {
 			long parentSequence) {
 		assert (rev != null);
 		long newSequence = rev.getSequence();
+		String docId = rev.getDocId();
+		long docNumericId = getDocNumericID(docId);
 		assert (newSequence > parentSequence);
 
 		// If there are no attachments in the new rev, there's nothing to do:
@@ -1766,8 +1768,8 @@ public class TDDatabase extends Observable {
 			// Added By Shubham --------------------------------
 			if (rev.isDeleted() && parentSequence > 0) {
 				// delete the attachments from blob store
-				String[] args = { Long.toString(parentSequence) };
-				String sql = "SELECT filepath FROM attachments WHERE sequence = ? ";
+				String[] args = { Long.toString(docNumericId) };
+				String sql = "select distinct filepath from attachments where sequence IN (select sequence from revs where doc_id = ?)";
 				Cursor cursor = database.rawQuery(sql, args);
 				if (!cursor.moveToFirst()) {
 					return new TDStatus(TDStatus.OK);
@@ -1845,9 +1847,7 @@ public class TDDatabase extends Observable {
 				if (revpos == generation || isBase64) {
 
 					if (!isBase64) {
-						attFile = new File(
-								Environment.getExternalStorageDirectory() + "/"
-										+ newContentBase64);
+						attFile = new File(newContentBase64);
 						FileInputStream fis;
 						ByteArrayOutputStream bos;
 						try {
@@ -1903,6 +1903,7 @@ public class TDDatabase extends Observable {
 
 					// Added By Shubham
 					// ---------------------------------------------------------------------------
+					// Should I delete it anyway without caring about the status
 					if (status.isSuccessful() && !isBase64) {
 						// Delete file from sdcard
 						if (attFile != null) {
