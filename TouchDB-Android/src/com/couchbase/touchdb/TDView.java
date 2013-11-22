@@ -281,7 +281,7 @@ public class TDView {
 			if (lastSequence < 0) {
 				return result;
 			}
-
+			int deleted = 0;
 			if (lastSequence == 0) {
 				// If the lastSequence has been reset to 0, make sure to remove
 				// any leftover rows:
@@ -291,16 +291,21 @@ public class TDView {
 				// Delete all obsolete map results (ones from since-replaced
 				// revisions):
 
-				// Original TouchDB query
-				// String[] args = { Integer.toString(getViewId()),
-				// Long.toString(lastSequence),
-				// Long.toString(lastSequence) };
-				// db.getDatabase().execSQL(
-				// "DELETE FROM maps WHERE view_id=? AND sequence IN ("
-				// + "SELECT parent FROM revs WHERE sequence>? "
-				// + "AND parent>0 AND parent<=?)", args);
+				String[] args = { Integer.toString(getViewId()),
+						Long.toString(lastSequence),
+						Long.toString(lastSequence) };
+				db.getDatabase().execSQL(
+						"DELETE FROM maps WHERE view_id=? AND sequence IN ("
+								+ "SELECT parent FROM revs WHERE sequence>? "
+								+ "AND parent>0 AND parent<=?)", args);
 
 				// Modified by Shubham
+
+				cursor = db.getDatabase().rawQuery("SELECT changes()", null);
+				cursor.moveToFirst();
+				deleted += cursor.getInt(0);
+				cursor.close();
+
 				// We are trying to take care of orphan conflicts which are not
 				// parents to subsequent revisions and were getting left behind
 				// in the view output and creating multiple rows for the same
@@ -310,8 +315,7 @@ public class TDView {
 				// all of them. We are limiting the number of sequence by using
 				// the lastSequence of the view
 
-				String[] args = { Integer.toString(getViewId()),
-						Long.toString(lastSequence),
+				String[] args1 = { Integer.toString(getViewId()),
 						Long.toString(lastSequence),
 						Long.toString(lastSequence) };
 
@@ -321,13 +325,13 @@ public class TDView {
 										+ " SELECT sequence as parent FROM revs r JOIN "
 										+ " ( SELECT doc_id, max(sequence) as parent FROM revs WHERE sequence > ? AND parent > 0 AND parent <= ?) d"
 										+ " ON r.doc_id = d.doc_id WHERE r.sequence >= ? and r.sequence < d.parent)",
-								args);
+								args1);
+
 			}
 
-			int deleted = 0;
 			cursor = db.getDatabase().rawQuery("SELECT changes()", null);
 			cursor.moveToFirst();
-			deleted = cursor.getInt(0);
+			deleted += cursor.getInt(0);
 			cursor.close();
 
 			// This is the emit() block, which gets called from within the
