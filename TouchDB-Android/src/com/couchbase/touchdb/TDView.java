@@ -377,42 +377,57 @@ public class TDView {
 
 			long lastDocID = 0;
 			while (!cursor.isAfterLast()) {
-				long docID = cursor.getLong(0);
-				if (docID != lastDocID) {
-					// Only look at the first-iterated revision of any document,
-					// because this is the
-					// one with the highest revid, hence the "winning" revision
-					// of a conflict.
-					lastDocID = docID;
+				if (cursor.getPosition() == 1507) {
+					cursor.getColumnCount();
+				}
+				try {
+					long docID = cursor.getLong(0);
+					if (docID != lastDocID) {
+						// Only look at the first-iterated revision of any
+						// document,
+						// because this is the
+						// one with the highest revid, hence the "winning"
+						// revision
+						// of a conflict.
+						lastDocID = docID;
 
-					// Reconstitute the document as a dictionary:
-					sequence = cursor.getLong(1);
-					String docId = cursor.getString(2);
-					if (docId.startsWith("_design/")) { // design docs don't get
-														// indexed!
-						cursor.moveToNext();
-						continue;
+						// Reconstitute the document as a dictionary:
+						sequence = cursor.getLong(1);
+						String docId = cursor.getString(2);
+						if (docId.startsWith("_design/")) { // design docs don't
+															// get
+															// indexed!
+							cursor.moveToNext();
+							continue;
+						}
+						String revId = cursor.getString(3);
+						byte[] json = cursor.getBlob(4);
+						Map<String, Object> properties = db
+								.documentPropertiesFromJSON(
+										json,
+										docId,
+										revId,
+										sequence,
+										EnumSet.noneOf(TDDatabase.TDContentOptions.class));
+
+						if (properties != null) {
+							// Call the user-defined map() to emit new key/value
+							// pairs from this revision:
+							Log.v(TDDatabase.TAG, "  call map for sequence="
+									+ Long.toString(sequence));
+							emitBlock.setSequence(sequence);
+							mapBlock.map(properties, emitBlock);
+						}
+
 					}
-					String revId = cursor.getString(3);
-					byte[] json = cursor.getBlob(4);
-					Map<String, Object> properties = db
-							.documentPropertiesFromJSON(
-									json,
-									docId,
-									revId,
-									sequence,
-									EnumSet.noneOf(TDDatabase.TDContentOptions.class));
-
-					if (properties != null) {
-						// Call the user-defined map() to emit new key/value
-						// pairs from this revision:
-						Log.v(TDDatabase.TAG,
-								"  call map for sequence="
-										+ Long.toString(sequence));
-						emitBlock.setSequence(sequence);
-						mapBlock.map(properties, emitBlock);
-					}
-
+					
+					// Shubham: Catching Error: java.lang.IllegalStateException:
+					// Couldn't read row x, col 0 from CursorWindow.
+					// Make sure the Cursor is initialized correctly before
+					// accessing data from it.
+					// TODO: Solve the above error.
+				} catch (IllegalStateException e) {
+					e.printStackTrace();
 				}
 
 				cursor.moveToNext();
