@@ -1144,11 +1144,6 @@ public class TDRouter implements Observer {
 		// http://wiki.apache.org/couchdb/HTTP_Document_API#GET
 		boolean isLocalDoc = docID.startsWith("_local");
 		EnumSet<TDContentOptions> options = getContentOptions();
-		
-		//Added By Shubham - We want to get _attachment.data as a string containing the path of attachment. 
-		options.add(TDContentOptions.TDIncludeAttachmentsDataAsPath);
-		
-		
 		String openRevsParam = getQuery("open_revs");
 		if (openRevsParam == null || isLocalDoc) {
 			// Regular GET:

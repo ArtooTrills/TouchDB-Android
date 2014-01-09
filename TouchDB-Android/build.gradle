@@ -1,0 +1,78 @@
+buildscript {
+    repositories {
+        mavenCentral()
+        maven {
+            url "https://oss.sonatype.org/content/repositories/snapshots"
+        }
+    }
+    dependencies {
+        classpath 'com.android.tools.build:gradle:0.7.+'
+    }
+}
+
+apply plugin: 'android-library'
+apply plugin: 'maven'
+group = 'com.couchbase.touchdb'
+version = '1.0-SNAPSHOT'
+
+repositories {
+    maven {
+        url "http://artoo-mvn-repo.s3.amazonaws.com/snapshots"
+    }
+    mavenCentral()
+}
+
+android {
+    compileSdkVersion 18
+    buildToolsVersion "18.0.1"
+
+    defaultConfig {
+        minSdkVersion 7
+        targetSdkVersion 18
+    }
+}
+
+dependencies {
+    //compile 'org.ektorp:org.ektorp.parent:1.2.2-SNAPSHOT@pom'
+    compile 'org.ektorp:org.ektorp.android:1.2.2-SNAPSHOT'
+    compile 'org.codehaus.jackson:jackson-mapper-asl:1.9.13'
+    compile 'org.codehaus.jackson:jackson-core-asl:1.9.13'
+    compile files('libs/so_files.jar')
+}
+
+task wrapper(type: org.gradle.api.tasks.wrapper.Wrapper) {
+    gradleVersion = '1.9'
+}
+
+//task copyNativeLibs(type: Copy) {
+//    from(new File(project(':TouchDB-Android').getProjectDir(), 'native-libs')) { include '**/*.so' }
+//    into new File(buildDir, 'native-libs')
+//}
+
+//tasks.withType(Compile) { compileTask -> compileTask.dependsOn copyNativeLibs }
+
+//clean.dependsOn 'cleanCopyNativeLibs'
+
+//task nativeLibsToJar(type: Zip, description: 'create a jar archive of the native libs') {
+//    destinationDir file('./libs')
+//    baseName 'native-libs'
+//    extension 'jar'
+//    from 'libs'
+//    into 'lib/'
+//}
+
+//tasks.withType(Compile) {
+//    compileTask -> compileTask.dependsOn(nativeLibsToJar)
+//}
+
+uploadArchives {
+    repositories {
+        mavenDeployer {
+            repository(url: "file://mvn")
+            pom.project {
+                name 'TouchDB-Android'
+                packaging 'aar'
+            }
+        }
+    }
+}

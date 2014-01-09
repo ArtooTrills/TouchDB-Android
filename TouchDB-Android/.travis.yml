@@ -1,0 +1,38 @@
+language: java
+jdk: oraclejdk7
+env:
+  matrix:
+  - ANDROID_SDKS=android-18,sysimg-18 ANDROID_TARGET=android-18  ANDROID_ABI=armeabi-v7a
+before_install:
+- sudo apt-get update -qq
+- if [ `uname -m` = x86_64 ]; then sudo apt-get install -qq --force-yes libgd2-xpm
+  ia32-libs ia32-libs-multiarch > /dev/null; fi
+- wget http://dl.google.com/android/android-sdk_r22.0.5-linux.tgz
+- tar xzf android-sdk_r22.0.5-linux.tgz
+- export ANDROID_HOME=$PWD/android-sdk-linux
+- export PATH=${PATH}:${ANDROID_HOME}/tools:${ANDROID_HOME}/platform-tools
+- wget https://dl-ssl.google.com/android/repository/build-tools_r18.0.1-linux.zip
+- unzip build-tools_r18.0.1-linux.zip -d $ANDROID_HOME
+- mkdir -p $ANDROID_HOME/build-tools/
+- mv $ANDROID_HOME/android-4.3 $ANDROID_HOME/build-tools/18.0.1
+- echo yes | android update sdk --filter platform-tools --no-ui --force > /dev/null
+- echo yes | android update sdk --filter android-18 --no-ui --force > /dev/null
+- echo yes | android update sdk --filter sysimg-18 --no-ui --force > /dev/null
+- echo yes | android update sdk --filter extra-android-support --no-ui --force > /dev/null
+- echo yes | android update sdk --filter extra-android-m2repository --no-ui --force > /dev/null
+- echo yes | android update sdk --filter add-on --no-ui --force > /dev/null
+script: "./gradlew uploadArchives"
+deploy:
+  provider: s3
+  access_key_id: AKIAJAY4BOTQTNCL7PVQ
+  secret_access_key:
+    secure: oXj5WGA7AUJC+IQMpy+jSjqFBX84kzfHGZ8y3m+igYgCuJ67n5CeqaAy3rjD42HkUrRQCJ0WD7Om8Dl9FDMybAG6rLOlvWM5YkA8GI1wXA0pK4t4HoaopoVLOlH4EjQBk6Nedka0Foq8mIHfV+cqFog1DCxa7s8BAEEUNbiozJM=
+  bucket: artoo-mvn-repo
+  skip_cleanup: true
+  upload-dir: snapshots
+  local-dir: mvn
+  on:
+    all_branches: true
+notifications:
+  flowdock:
+    secure: "YxQjejt07iveWY5RNUKiTinmV8ALSLZVSHOeSsgFhPUXSuTW5ny6a406FQZnXZprMU1a0dQ2M0jDRUNs0jmDG2IoEcDW6tU9krvFCVEly5iSvpAJReGYKHtIO+59ycKu8obTXMImBKiuDGC6b5wqJ4gjM60HOtqjOGqscSfbwGo="
