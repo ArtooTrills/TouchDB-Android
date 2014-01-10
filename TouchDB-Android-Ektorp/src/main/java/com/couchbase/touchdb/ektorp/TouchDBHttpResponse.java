@@ -96,4 +96,6 @@ public class TouchDBHttpResponse implements HttpResponse, TDRouterCallbackBlock 
         is = conn.getResponseInputStream();
     }
 
+	
+
 }

@@ -1,0 +1,2 @@
+include ':TouchDB-Android'
+include ':TouchDB-Android-Ektorp'
