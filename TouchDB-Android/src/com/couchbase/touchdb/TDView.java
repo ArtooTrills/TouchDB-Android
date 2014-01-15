@@ -363,60 +363,65 @@ public class TDView {
 				}
 			};
 
+			// TouchDB Original
 			// Now scan every revision added since the last time the view was
 			// indexed:
-			String[] selectArgs = { Long.toString(lastSequence) };
+			// String[] selectArgs = { Long.toString(lastSequence) };
+			//
+			// cursor = db.getDatabase().rawQuery(
+			// "SELECT revs.doc_id, sequence, docid, revid, json FROM revs, docs "
+			// + "WHERE sequence>? AND current!=0 AND deleted=0 "
+			// + "AND revs.doc_id = docs.doc_id "
+			// + "ORDER BY revs.doc_id, revid DESC", selectArgs);
+			// cursor.moveToFirst();
+			// long lastDocID = 0;
+			// while (!cursor.isAfterLast()) {
+			// long docID = cursor.getLong(0);
+			// if (docID != lastDocID) {
+			// // Only look at the first-iterated revision of any document,
+			// // because this is the
+			// // one with the highest revid, hence the "winning" revision
+			// // of a conflict.
+			// lastDocID = docID;
+			//
+			// // Reconstitute the document as a dictionary:
+			// sequence = cursor.getLong(1);
+			// String docId = cursor.getString(2);
+			// if (docId.startsWith("_design/")) { // design docs don't get
+			// // indexed!
+			// cursor.moveToNext();
+			// continue;
+			// }
+			// String revId = cursor.getString(3);
+			// byte[] json = cursor.getBlob(4);
+			// Map<String, Object> properties = db
+			// .documentPropertiesFromJSON(
+			// json,
+			// docId,
+			// revId,
+			// sequence,
+			// EnumSet.noneOf(TDDatabase.TDContentOptions.class));
+			//
+			// if (properties != null) {
+			// // Call the user-defined map() to emit new key/value
+			// // pairs from this revision:
+			// Log.v(TDDatabase.TAG,
+			// "  call map for sequence="
+			// + Long.toString(sequence));
+			// emitBlock.setSequence(sequence);
+			// mapBlock.map(properties, emitBlock);
+			// }
+			//
+			// }
+			//
+			// cursor.moveToNext();
+			// }
 
-			cursor = db.getDatabase().rawQuery(
-					"SELECT revs.doc_id, sequence, docid, revid, json FROM revs, docs "
-							+ "WHERE sequence>? AND current!=0 AND deleted=0 "
-							+ "AND revs.doc_id = docs.doc_id "
-							+ "ORDER BY revs.doc_id, revid DESC", selectArgs);
+			// Modified by Shubham - If cursor rows are crossing the memory
+			// limit, catching the exception and doing the query again from
+			// lastsequence
 
-			cursor.moveToFirst();
-
-			long lastDocID = 0;
-			while (!cursor.isAfterLast()) {
-				long docID = cursor.getLong(0);
-				if (docID != lastDocID) {
-					// Only look at the first-iterated revision of any document,
-					// because this is the
-					// one with the highest revid, hence the "winning" revision
-					// of a conflict.
-					lastDocID = docID;
-
-					// Reconstitute the document as a dictionary:
-					sequence = cursor.getLong(1);
-					String docId = cursor.getString(2);
-					if (docId.startsWith("_design/")) { // design docs don't get
-														// indexed!
-						cursor.moveToNext();
-						continue;
-					}
-					String revId = cursor.getString(3);
-					byte[] json = cursor.getBlob(4);
-					Map<String, Object> properties = db
-							.documentPropertiesFromJSON(
-									json,
-									docId,
-									revId,
-									sequence,
-									EnumSet.noneOf(TDDatabase.TDContentOptions.class));
-
-					if (properties != null) {
-						// Call the user-defined map() to emit new key/value
-						// pairs from this revision:
-						Log.v(TDDatabase.TAG,
-								"  call map for sequence="
-										+ Long.toString(sequence));
-						emitBlock.setSequence(sequence);
-						mapBlock.map(properties, emitBlock);
-					}
-
-				}
-
-				cursor.moveToNext();
-			}
+			scanRevs(lastSequence, emitBlock, 0);
 
 			// Finally, record the last revision sequence number that was
 			// indexed:
@@ -448,6 +453,71 @@ public class TDView {
 		}
 
 		return result;
+	}
+
+	// Added by Shubham
+	private void scanRevs(long lastSequence,
+			AbstractTouchMapEmitBlock emitBlock, long lastDocID) {
+		String[] selectArgs = { Long.toString(lastSequence) };
+		Cursor cursor = null;
+		long sequence = 0;
+		cursor = db.getDatabase().rawQuery(
+				"SELECT revs.doc_id, sequence, docid, revid, json FROM revs, docs "
+						+ "WHERE sequence>? AND current!=0 AND deleted=0 "
+						+ "AND revs.doc_id = docs.doc_id "
+						+ "ORDER BY revs.doc_id, revid DESC", selectArgs);
+
+		cursor.moveToFirst();
+		try {
+			while (!cursor.isAfterLast()) {
+
+				long docID = cursor.getLong(0);
+				if (docID != lastDocID) {
+					// Only look at the first-iterated revision of any
+					// document,
+					// because this is the
+					// one with the highest revid, hence the "winning"
+					// revision
+					// of a conflict.
+					lastDocID = docID;
+
+					// Reconstitute the document as a dictionary:
+					sequence = cursor.getLong(1);
+					String docId = cursor.getString(2);
+					if (docId.startsWith("_design/")) { // design docs don't
+														// get
+														// indexed!
+						cursor.moveToNext();
+						continue;
+					}
+					String revId = cursor.getString(3);
+					byte[] json = cursor.getBlob(4);
+					Map<String, Object> properties = db
+							.documentPropertiesFromJSON(
+									json,
+									docId,
+									revId,
+									sequence,
+									EnumSet.noneOf(TDDatabase.TDContentOptions.class));
+
+					if (properties != null) {
+						// Call the user-defined map() to emit new key/value
+						// pairs from this revision:
+						Log.v(TDDatabase.TAG,
+								"  call map for sequence="
+										+ Long.toString(sequence));
+						emitBlock.setSequence(sequence);
+						mapBlock.map(properties, emitBlock);
+					}
+
+				}
+				cursor.moveToNext();
+			}
+		} catch (IllegalStateException e) {
+			// cursor rows out limit the memory constraint of 1 MB
+			scanRevs(sequence - 1, emitBlock, lastDocID);
+		}
+
 	}
 
 	public Cursor resultSetWithOptions(TDQueryOptions options, TDStatus status) {
