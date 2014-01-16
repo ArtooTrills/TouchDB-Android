@@ -1,54 +1,54 @@
-buildscript {
-    repositories {
-        mavenCentral()
-        maven {
-            url "https://oss.sonatype.org/content/repositories/snapshots"
-        }
-    }
-    dependencies {
-        classpath 'com.android.tools.build:gradle:0.7.+'
-    }
-}
-
-apply plugin: 'android-library'
-apply plugin: 'maven'
-group = 'com.couchbase.touchdb.ektorp'
-version = '1.0-SNAPSHOT'
-
-repositories {
-    maven {
-        url "http://artoo-mvn-repo.s3.amazonaws.com/snapshots"
-    }
-    mavenCentral()
-}
-
-android {
-    compileSdkVersion 18
-    buildToolsVersion "18.0.1"
-
-    defaultConfig {
-        minSdkVersion 8
-        targetSdkVersion 18
-    }
-}
-
-dependencies {
-    //compile 'org.ektorp:org.ektorp.parent:1.2.2-SNAPSHOT@pom'
-    compile 'com.couchbase.touchdb:TouchDB-Android:1.0-SNAPSHOT'
-}
-
-task wrapper(type: org.gradle.api.tasks.wrapper.Wrapper) {
-    gradleVersion = '1.9'
-}
-
-uploadArchives {
-    repositories {
-        mavenDeployer {
-            repository(url: "file://mvn")
-            pom.project {
-                name 'TouchDB-Android-Ektorp'
-                packaging 'aar'
-            }
-        }
-    }
-}
+//buildscript {
+//    repositories {
+//        mavenCentral()
+//        maven {
+//            url "https://oss.sonatype.org/content/repositories/snapshots"
+//        }
+//    }
+//    dependencies {
+//        classpath 'com.android.tools.build:gradle:0.7.+'
+//    }
+//}
+//
+//apply plugin: 'android-library'
+//apply plugin: 'maven'
+//group = 'com.couchbase.touchdb.ektorp'
+//version = '1.0-SNAPSHOT'
+//
+//repositories {
+//    maven {
+//        url "http://artoo-mvn-repo.s3.amazonaws.com/snapshots"
+//    }
+//    mavenCentral()
+//}
+//
+//android {
+//    compileSdkVersion 18
+//    buildToolsVersion "18.0.1"
+//
+//    defaultConfig {
+//        minSdkVersion 8
+//        targetSdkVersion 18
+//    }
+//}
+//
+//dependencies {
+//    //compile 'org.ektorp:org.ektorp.parent:1.2.2-SNAPSHOT@pom'
+//    compile 'com.couchbase.touchdb:TouchDB-Android:1.0-SNAPSHOT'
+//}
+//
+//task wrapper(type: org.gradle.api.tasks.wrapper.Wrapper) {
+//    gradleVersion = '1.9'
+//}
+//
+//uploadArchives {
+//    repositories {
+//        mavenDeployer {
+//            repository(url: "file://mvn")
+//            pom.project {
+//                name 'TouchDB-Android-Ektorp'
+//                packaging 'aar'
+//            }
+//        }
+//    }
+//}
