@@ -317,7 +317,8 @@ public class TDView {
 
 				String[] args1 = { Integer.toString(getViewId()),
 						Long.toString(lastSequence),
-						Long.toString(lastSequence) };
+						Long.toString(lastSequence),
+                        Long.toString(lastSequence)};
 
 				db.getDatabase()
 						.execSQL(

@@ -15,9 +15,18 @@ apply plugin: 'maven'
 group = 'com.couchbase.touchdb'
 version = '1.0-SNAPSHOT'
 
+configurations {
+    deployerAars
+    all*.exclude module: "org.osgi.foundation"
+}
+
 repositories {
+
     maven {
         url "http://artoo-mvn-repo.s3.amazonaws.com/snapshots"
+    }
+    maven {
+        url 'https://oss.sonatype.org/content/repositories/snapshots/'
     }
     mavenCentral()
 }
@@ -28,7 +37,7 @@ android {
 
     defaultConfig {
         minSdkVersion 7
-        targetSdkVersion 18
+        targetSdkVersion 16
     }
 }
 
@@ -38,6 +47,7 @@ dependencies {
     compile 'org.codehaus.jackson:jackson-mapper-asl:1.9.13'
     compile 'org.codehaus.jackson:jackson-core-asl:1.9.13'
     compile files('libs/so_files.jar')
+    deployerAars "org.springframework.build:aws-maven:4.8.0.RELEASE"
 }
 
 task wrapper(type: org.gradle.api.tasks.wrapper.Wrapper) {
@@ -65,12 +75,27 @@ task wrapper(type: org.gradle.api.tasks.wrapper.Wrapper) {
 //    compileTask -> compileTask.dependsOn(nativeLibsToJar)
 //}
 
+// uploadArchives {
+//     repositories {
+//         mavenDeployer {
+//             repository(url: "file://mvn")
+//             pom.project {
+//                 name 'TouchDB-Android'
+//                 packaging 'aar'
+//             }
+//         }
+//     }
+// }
+
 uploadArchives {
     repositories {
-        mavenDeployer {
-            repository(url: "file://mvn")
+        mavenDeployer { deployer ->
+            configuration = configurations.deployerAars
+            repository(url: "s3://artoo-mvn-repo/snapshots"){ authentication(userName: 'AKIAJAY4BOTQTNCL7PVQ',
+                    passphrase: 'pmY2vBxOHLkGz7TGsTMpPyPot764aPmYgPUHA7Ub')
+            }
             pom.project {
-                name 'TouchDB-Android'
+                name 'ArtooAPI-Android-DataCapture'
                 packaging 'aar'
             }
         }
